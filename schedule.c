@@ -292,4 +292,5 @@ PRIVATE void balance_queues(struct timer *tp)
  
  int do_lottery() {
  	printf("Lottery Is Working");
+ 	return 1;
  }
