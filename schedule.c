@@ -25,6 +25,15 @@ FORWARD _PROTOTYPE( void balance_queues, (struct timer *tp)		);
 #define DEFAULT_USER_TIME_SLICE 200
 
 /*===========================================================================*
+ *				process_in_user_q			     *
+ *===========================================================================*/
+
+int process_in_user_q(struct schedproc* rmp)
+{
+	return ((rmp->priority >= MAX_USER_Q) && (rmp->priority <= MIN_USER_Q));
+}
+
+/*===========================================================================*
  *				do_noquantum				     *
  *===========================================================================*/
 
