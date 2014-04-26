@@ -52,7 +52,7 @@ PUBLIC int do_noquantum(message *m_ptr)
 	rmp = &schedproc[proc_nr_n];
 	
 	/* If its a user process than set priority to USER_Q
-	Otherwise if its a system process (15 and below) Increase the 
+	Otherwise if its a system process (15 and below) Decrease the 
 	priority by one */
 	if (is_user_process(rmp)) {
 		rmp->priority = USER_Q;
