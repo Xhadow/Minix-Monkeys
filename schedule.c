@@ -13,6 +13,7 @@
 #include <minix/com.h>
 #include <machine/archtypes.h>
 #include "kernel/proc.h" /* for queue constants */
+#include <minix/syslib.h>
 
 PRIVATE timer_t sched_timer;
 PRIVATE unsigned balance_timeout;
@@ -49,6 +50,17 @@ PUBLIC int do_noquantum(message *m_ptr)
 	}
 
 	rmp = &schedproc[proc_nr_n];
+	
+	/* If its a user process than set priority to USER_Q
+	Otherwise if its a system process (15 and below) Increase the 
+	priority by one */
+	if (is_user_process(rmp)) {
+		rmp->priority = USER_Q;
+        } else if (rmp->priority < MAX_USER_Q - 1) {
+           	rmp->priority += 1;
+        }
+	
+	
 	if (rmp->priority < MIN_USER_Q) {
 		rmp->priority += 1; /* lower priority */
 	}
@@ -56,6 +68,13 @@ PUBLIC int do_noquantum(message *m_ptr)
 	if ((rv = schedule_process(rmp)) != OK) {
 		return rv;
 	}
+	
+	
+	if ((rv = do_lottery()) != OK) {
+		return rv;
+	}
+	 
+	
 	return OK;
 }
 
@@ -266,3 +285,11 @@ PRIVATE void balance_queues(struct timer *tp)
 
 	set_timer(&sched_timer, balance_timeout, balance_queues, 0);
 }
+
+/*===========================================================================*
+ *				do_lottery			             *
+ *===========================================================================*/
+ 
+ int do_lottery() {
+ 	printf("Lottery Is Working");
+ }
