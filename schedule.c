@@ -59,6 +59,8 @@ PUBLIC int do_noquantum(message *m_ptr)
         } else if (rmp->priority < MAX_USER_Q - 1) {
            	rmp->priority += 1;
         }
+
+	printf("do_noquantum, %d in %d tickets: %d\n", rmp->endpoint, rmp->priority, rmp->numTickets);
 	
 
 	if ((rv = schedule_process(rmp)) != OK) {
@@ -95,7 +97,7 @@ PUBLIC int do_stop_scheduling(message *m_ptr)
 	rmp = &schedproc[proc_nr_n];
 	rmp->flags = 0; /*&= ~IN_USE;*/
 
-	if((rv = do_loterry()) != OK)
+	if((rv = do_lottery()) != OK)
 		return rv;
 
 	return OK;
@@ -128,6 +130,7 @@ PUBLIC int do_start_scheduling(message *m_ptr)
 	rmp->endpoint     = m_ptr->SCHEDULING_ENDPOINT;
 	rmp->parent       = m_ptr->SCHEDULING_PARENT;
 	rmp->max_priority = (unsigned) m_ptr->SCHEDULING_MAXPRIO;
+	rmp->numTickets = 10;
 
 	if (rmp->max_priority >= NR_SCHED_QUEUES) {
 		return EINVAL;
@@ -221,8 +224,9 @@ PUBLIC int do_nice(message *m_ptr)
 	old_max_q = rmp->max_priority;
 	old_tickets = rmp->numTickets;
 
-	/* Update the proc entry and reschedule the process */
-	//rmp->max_priority = rmp->priority = new_q;
+	/* Update the proc entry and reschedule the process 
+	rmp->max_priority = rmp->priority = new_q;*/
+        rmp->priority = USER_Q;
 	add = rmp->numTickets + ((new_q > 100) ? (100 - rmp->numTickets) : new_q);
 	add = rmp->numTickets + ((new_q < 1) ? (1 - rmp->numTickets) : add);
 
@@ -263,9 +267,12 @@ PRIVATE int schedule_process(struct schedproc * rmp)
 
 PUBLIC void init_scheduling(void)
 {
+	u64_t r;
 	balance_timeout = BALANCE_TIMEOUT * sys_hz();
 	init_timer(&sched_timer);
 	set_timer(&sched_timer, balance_timeout, balance_queues, 0);
+	read_tsc_64(&r);
+	srand((unsigned)r.lo);
 }
 
 /*===========================================================================*
@@ -285,8 +292,7 @@ PRIVATE void balance_queues(struct timer *tp)
 
 	for (proc_nr=0, rmp=schedproc; proc_nr < NR_PROCS; proc_nr++, rmp++) {
 		if (rmp->flags & IN_USE) {
-			if ((rmp->priority > rmp->max_priority) &&
-				(!is_user_process(rmp)))) {
+			if (rmp->priority > rmp->max_priority && (!is_user_process(rmp))) {
 				rmp->priority -= 1; /* increase priority */
 				schedule_process(rmp);
 			}
@@ -301,27 +307,30 @@ PRIVATE void balance_queues(struct timer *tp)
  *===========================================================================*/
  
  int do_lottery() {
+
 	struct schedproc *rmp;
 	int procNum;
 	int winner; /*Winner 13*/
 	int history; /*History 14 */
 	int loser;  /*Loser 15*/
-	int ticketSize=0;
-	
+	int ticketSize = 0;
+
 	/*===================================================================*
 	 *Store everything in loser then do lottery from loser. Loser will   *
 	 *be our idle state(queues).                            	     *
 	 *===================================================================*/
 	for(procNum = 0, rmp = schedproc; procNum < NR_PROCS; procNum++, rmp++) {
-		if((rmp->flags & IN_USE) && (is_user_process(rmp))
-			&& (USER_Q == rmp->priority)) {
-			ticketSize += rmp->numTickets;
+		if((rmp->flags & IN_USE) && (is_user_process(rmp))) {
+			if (USER_Q == rmp->priority) {
+				/*ticketSize += rmp->numTickets;*/
+			}		
 		}
 	}
 
 	winner = (ticketSize ? (rand() % ticketSize) : 0);
 
-	for(procNum = 0; rmp = schedproc; procNum < NR_PROCS; procNum++ rmp++) {
+
+	for(procNum = 0, rmp = schedproc; procNum < NR_PROCS; procNum++, rmp++) {
 		if(!((rmp->flags & IN_USE) && (is_user_process(rmp))
 			&& (USER_Q == rmp->priority)))
 			continue;
