@@ -59,11 +59,6 @@ PUBLIC int do_noquantum(message *m_ptr)
         } else if (rmp->priority < MAX_USER_Q - 1) {
            	rmp->priority += 1;
         }
-	
-	
-	if (rmp->priority < MIN_USER_Q) {
-		rmp->priority += 1; /* lower priority */
-	}
 
 	if ((rv = schedule_process(rmp)) != OK) {
 		return rv;
