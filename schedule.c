@@ -200,7 +200,8 @@ PUBLIC int do_nice(message *m_ptr)
 	int rv;
 	int add;
 	int proc_nr_n;
-	unsigned new_q, old_q, old_max_q, old_tickets;
+	unsigned new_q, old_q, old_max_q, 
+	int old_tickets;
 
 	/* check who can send you requests */
 	if (!accept_message(m_ptr))
@@ -314,6 +315,7 @@ PRIVATE void balance_queues(struct timer *tp)
 	int history; /*History 14 */
 	int loser;  /*Loser 15*/
 	int ticketSize = 0;
+	int check = -1;
 
 	/*===================================================================*
 	 *Store everything in loser then do lottery from loser. Loser will   *
@@ -322,7 +324,7 @@ PRIVATE void balance_queues(struct timer *tp)
 	for(procNum = 0, rmp = schedproc; procNum < NR_PROCS; procNum++, rmp++) {
 		if((rmp->flags & IN_USE) && (is_user_process(rmp))) {
 			if (USER_Q == rmp->priority) {
-				/*ticketSize += rmp->numTickets;*/
+				ticketSize += rmp->numTickets;
 			}		
 		}
 	}
@@ -340,8 +342,10 @@ PRIVATE void balance_queues(struct timer *tp)
 		if(winner >= 0) {
 			winner -= rmp->numTickets;
 
-			if(winner < 0)
+			if(winner < 0) {
 				rmp->priority = MAX_USER_Q;
+				check = OK;
+			}
 		}
 
 		if(history != rmp->priority)
