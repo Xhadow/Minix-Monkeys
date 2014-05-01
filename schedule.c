@@ -30,6 +30,8 @@ FORWARD _PROTOTYPE( void balance_queues, (struct timer *tp)		);
 /*===========================================================================*
  *                            is_user_process                                *
  *===========================================================================*/
+ /*Function that we made in order to check if a process is a user process and not a kernel one. 
+ We do this by checking if the priority is in the correct boundaries  */
 
 PUBLIC int is_user_process(struct schedproc* rmp)
 {
@@ -53,7 +55,9 @@ PUBLIC int do_noquantum(message *m_ptr)
 	}
 
 	rmp = &schedproc[proc_nr_n];
-
+/*Code to first check if this is a user process that is running. If it is then it sees if it is in the winnign queue. 
+If it is it is given more tickets so it will have more time to run, otherwise it will take tickets if it is in the loser
+queue */
 	if (is_user_process(rmp)) {
 		printf("Do NoQ  {P : %3d, T : %3d, E : %5d}\n",
 			rmp->priority, rmp->num_tickets, rmp->endpoint);
@@ -76,7 +80,8 @@ PUBLIC int do_noquantum(message *m_ptr)
 	if ((rv = schedule_process(rmp)) != OK) {
 		return rv;
 	}
-
+/*Call of our lottery function at the end of do_noquantum so a new lottery can be held and a new winner will be chosen
+sincethe last one is completed */
 	if((rv = do_lottery()) != OK) {
 		return rv;
 	}
@@ -144,6 +149,7 @@ PUBLIC int do_start_scheduling(message *m_ptr)
 	rmp->parent       = m_ptr->SCHEDULING_PARENT;
 
 	rmp->max_priority = (unsigned) m_ptr->SCHEDULING_MAXPRIO;
+	/* Setting the base ticket specifications */
 	rmp->max_tickets  = 20;
 	rmp->num_tickets  = 20;
 
@@ -333,7 +339,11 @@ PRIVATE void balance_queues(struct timer *tp)
 /*=========================================================================*
  *                              do_lottery                                 *
  *=========================================================================*/
-
+/* Our lottery function will be called every time a process from the winners queue has finished or has become blocked
+It will then loop through all of the processes in the userqueue that are not already blocked and schedule them. It will
+choose a winner based off a lottery where a random number is chosen and modded by the total number of tickets in the
+pool. Simple algebra is then used to choose a winner based off this number of tickets by subtracting it from each entry
+until 0 has been reached*/
 PUBLIC int do_lottery()
 {
 	struct schedproc* rmp;
