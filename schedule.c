@@ -11,11 +11,14 @@
 #include "schedproc.h"
 #include <assert.h>
 #include <minix/com.h>
+#include <minix/syslib.h>
 #include <machine/archtypes.h>
+#include <stdio.h>
 #include "kernel/proc.h" /* for queue constants */
 
 PRIVATE timer_t sched_timer;
 PRIVATE unsigned balance_timeout;
+PRIVATE unsigned winning_proc_nr;
 
 #define BALANCE_TIMEOUT	5 /* how often to balance queues in seconds */
 
@@ -25,12 +28,22 @@ FORWARD _PROTOTYPE( void balance_queues, (struct timer *tp)		);
 #define DEFAULT_USER_TIME_SLICE 200
 
 /*===========================================================================*
+ *                            is_user_process                                *
+ *===========================================================================*/
+
+PUBLIC int is_user_process(struct schedproc* rmp)
+{
+	return ((rmp->priority <= MIN_USER_Q) && (rmp->priority >= MAX_USER_Q));
+}
+
+/*===========================================================================*
  *				do_noquantum				     *
  *===========================================================================*/
 
 PUBLIC int do_noquantum(message *m_ptr)
 {
-	register struct schedproc *rmp;
+	register struct schedproc* rmp;
+	register struct schedproc* rmp2;
 	int rv, proc_nr_n;
 
 	if (sched_isokendpt(m_ptr->m_source, &proc_nr_n) != OK) {
@@ -40,13 +53,34 @@ PUBLIC int do_noquantum(message *m_ptr)
 	}
 
 	rmp = &schedproc[proc_nr_n];
-	if (rmp->priority < MIN_USER_Q) {
+
+	if (is_user_process(rmp)) {
+		printf("Do NoQ  {P : %3d, T : %3d, E : %5d}\n",
+			rmp->priority, rmp->num_tickets, rmp->endpoint);
+
+		if(rmp->priority == MAX_USER_Q) {
+			if(rmp->num_tickets > 1)
+				rmp->num_tickets -= 1;
+		} else {
+			rmp2 = &schedproc[winning_proc_nr];
+
+			if(rmp2->num_tickets < rmp2->max_tickets)
+				rmp2->num_tickets += 1;
+		}
+
+		rmp->priority = USER_Q;
+	} else if(rmp->priority < (MAX_USER_Q - 1)) {
 		rmp->priority += 1; /* lower priority */
 	}
 
-	if ((rv = schedule_process(rmp)) != OK) { 
+	if ((rv = schedule_process(rmp)) != OK) {
 		return rv;
 	}
+
+	if((rv = do_lottery()) != OK) {
+		return rv;
+	}
+
 	return OK;
 }
 
@@ -70,6 +104,14 @@ PUBLIC int do_stop_scheduling(message *m_ptr)
 
 	rmp = &schedproc[proc_nr_n];
 	rmp->flags = 0; /*&= ~IN_USE;*/
+
+	if(is_user_process(rmp))
+		printf("Stop    {P : %3d, T : %3d, E : %5d}\n",
+			rmp->priority, rmp->num_tickets, rmp->endpoint);
+
+	if((rv = do_lottery()) != OK) {
+		return rv;
+	}
 
 	return OK;
 }
@@ -100,7 +142,11 @@ PUBLIC int do_start_scheduling(message *m_ptr)
 	/* Populate process slot */
 	rmp->endpoint     = m_ptr->SCHEDULING_ENDPOINT;
 	rmp->parent       = m_ptr->SCHEDULING_PARENT;
+
 	rmp->max_priority = (unsigned) m_ptr->SCHEDULING_MAXPRIO;
+	rmp->max_tickets  = 20;
+	rmp->num_tickets  = 20;
+
 	if (rmp->max_priority >= NR_SCHED_QUEUES) {
 		return EINVAL;
 	}
@@ -123,8 +169,12 @@ PUBLIC int do_start_scheduling(message *m_ptr)
 				&parent_nr_n)) != OK)
 			return rv;
 
-		rmp->priority = schedproc[parent_nr_n].priority;
+		rmp->priority = USER_Q;
 		rmp->time_slice = schedproc[parent_nr_n].time_slice;
+
+		printf("Start   {P : %3d, T : %3d, E : %5d}\n",
+			rmp->priority, rmp->num_tickets, rmp->endpoint);
+
 		break;
 		
 	default: 
@@ -148,6 +198,10 @@ PUBLIC int do_start_scheduling(message *m_ptr)
 		return rv;
 	}
 
+	if((rv = do_lottery()) != OK) {
+		return rv;
+	}
+
 	/* Mark ourselves as the new scheduler.
 	 * By default, processes are scheduled by the parents scheduler. In case
 	 * this scheduler would want to delegate scheduling to another
@@ -168,7 +222,7 @@ PUBLIC int do_nice(message *m_ptr)
 	struct schedproc *rmp;
 	int rv;
 	int proc_nr_n;
-	unsigned new_q, old_q, old_max_q;
+	unsigned new_q, old_q, old_max_q, old_num_tickets;
 
 	/* check who can send you requests */
 	if (!accept_message(m_ptr))
@@ -187,18 +241,32 @@ PUBLIC int do_nice(message *m_ptr)
 	}
 
 	/* Store old values, in case we need to roll back the changes */
-	old_q     = rmp->priority;
-	old_max_q = rmp->max_priority;
+	old_q           = rmp->priority;
+	old_max_q       = rmp->max_priority;
+	old_num_tickets = rmp->num_tickets;
 
 	/* Update the proc entry and reschedule the process */
-	rmp->max_priority = rmp->priority = new_q;
+	if(is_user_process(rmp)) {
+		rmp->max_tickets = new_q;
+		rmp->max_tickets =
+			(rmp->max_tickets ? (rmp->max_tickets % 100) : 0);
+		rmp->num_tickets = rmp->max_tickets;
+
+		printf("Nice    {P : %3d, T : %3d, E : %5d}\n",
+			rmp->priority, rmp->num_tickets, rmp->endpoint);
+	} else {
+		rmp->max_priority = rmp->priority = new_q;
+	}
 
 	if ((rv = schedule_process(rmp)) != OK) {
 		/* Something went wrong when rescheduling the process, roll
 		 * back the changes to proc struct */
 		rmp->priority     = old_q;
 		rmp->max_priority = old_max_q;
+		rmp->num_tickets  = old_num_tickets;
 	}
+
+	rv = do_lottery();
 
 	return rv;
 }
@@ -226,9 +294,14 @@ PRIVATE int schedule_process(struct schedproc * rmp)
 
 PUBLIC void init_scheduling(void)
 {
+	u64_t r;
+
 	balance_timeout = BALANCE_TIMEOUT * sys_hz();
 	init_timer(&sched_timer);
 	set_timer(&sched_timer, balance_timeout, balance_queues, 0);
+
+	read_tsc_64(&r);
+	srand((unsigned)r.lo);
 }
 
 /*===========================================================================*
@@ -247,13 +320,62 @@ PRIVATE void balance_queues(struct timer *tp)
 	int rv;
 
 	for (proc_nr=0, rmp=schedproc; proc_nr < NR_PROCS; proc_nr++, rmp++) {
-		if (rmp->flags & IN_USE) {
-			if (rmp->priority > rmp->max_priority) {
+		if((rmp->flags & IN_USE) && (rmp->priority > rmp->max_priority)
+			&& (!is_user_process(rmp))) {
 				rmp->priority -= 1; /* increase priority */
 				schedule_process(rmp);
-			}
 		}
 	}
 
 	set_timer(&sched_timer, balance_timeout, balance_queues, 0);
+}
+
+/*=========================================================================*
+ *                              do_lottery                                 *
+ *=========================================================================*/
+
+PUBLIC int do_lottery()
+{
+	struct schedproc* rmp;
+
+	int winner, w;
+	unsigned num_tickets = 0;
+	unsigned proc_nr;
+
+	for(proc_nr=0, rmp=schedproc; proc_nr < NR_PROCS; proc_nr++, rmp++) {
+		if((rmp->flags & IN_USE) && (is_user_process(rmp))) {
+			if(rmp->priority != USER_Q) {
+				rmp->priority = USER_Q;
+				schedule_process(rmp);
+			}
+
+			num_tickets += rmp->num_tickets;
+		}
+	}
+
+	if(!num_tickets)
+		return OK;
+
+	winner = (num_tickets ? (rand() % num_tickets) : 0);
+	w = winner;
+
+	for(proc_nr=0, rmp=schedproc; proc_nr < NR_PROCS; proc_nr++, rmp++) {
+		if(!((rmp->flags & IN_USE) && (is_user_process(rmp))
+			&& (rmp->priority == USER_Q)))
+				continue;
+
+		winner -= rmp->num_tickets;
+
+		if(winner <= 0) {
+			winning_proc_nr = proc_nr;
+
+			rmp->priority   = MAX_USER_Q;
+
+			printf("Winner  {P : %3d, T : %3d, E : %5d}\n",
+				rmp->priority, w, rmp->endpoint);
+			return schedule_process(rmp);
+		}
+	}
+
+	return OK;
 }
