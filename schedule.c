@@ -354,3 +354,40 @@ PRIVATE void balance_queues(struct timer *tp)
 
 	return (ticketSize ? -1 : OK);
  }
+/*=========================================================================*
+ *                              setPriority                                *
+ *=========================================================================*/
+PUBLIC void setPriority(int ntickets, struct schedproc *rmp)
+{
+	/*If positive number do this*/
+	if(ntickets > 0)
+	{
+		/*Check to see if tickets is over max tickets allowed for process, make *
+		 *max if it is which is 100 for now					*/
+		if(((100 - rmp->num_tickets) < ntickets) || (rmp->num_tickets == 100))
+		{
+			rmp->num_tickets = 100;
+		}
+		else
+		{	
+			/*Add tickets to the process tickets*/
+			rmp->num_tickets = rmp->num_tickets + ntickets;
+		}
+	}
+	/*If ntickets is negative do this*/
+	else
+	{
+		/*change negative number to positive to be easier to deal with*/
+		ntickets = ntickets * -1;
+		/*Check to make sure the number of tickets is always more than 0*/
+		if((rmp->num_tickets < ntickets) || (rmp->num_tickets = 1))
+		{
+			rmp->tickets = 1;
+		}
+		else
+		{
+			/*Subtract number of tickets from the process*/
+			rmp->num_tickets = rmp->num_tickets - ntickets;
+		}
+	}
+}
