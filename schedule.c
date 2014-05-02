@@ -353,11 +353,8 @@ PUBLIC int do_lottery()
 	unsigned proc_nr;
 
 	for(proc_nr=0, rmp=schedproc; proc_nr < NR_PROCS; proc_nr++, rmp++) {
-		if((rmp->flags & IN_USE) && (is_user_process(rmp))) {
-			if(rmp->priority != USER_Q) {
-				rmp->priority = USER_Q;
-				schedule_process(rmp);
-			}
+		if((rmp->flags & IN_USE) && (is_user_process(rmp))
+			&& (rmp->priority == USER_Q)) {
 
 			num_tickets += rmp->num_tickets;
 		}
