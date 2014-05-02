@@ -251,18 +251,18 @@ PUBLIC int do_nice(message *m_ptr)
 	old_max_q       = rmp->max_priority;
 	old_num_tickets = rmp->num_tickets;
 
-	/* Update the proc entry and reschedule the process
+	Update the proc entry and reschedule the process
 	if(is_user_process(rmp)) {
-		rmp->max_tickets = new_q;
+	/*	rmp->max_tickets = new_q;
 		rmp->max_tickets =
 			(rmp->max_tickets ? (rmp->max_tickets % 100) : 0);
 		rmp->num_tickets = rmp->max_tickets;
 
 		printf("Nice    {P : %3d, T : %3d, E : %5d}\n",
 			rmp->priority, rmp->num_tickets, rmp->endpoint);*/
-	mp->max_priority = MAX_USER_Q;
+	rmp->max_priority = MAX_USER_Q;
 	rmp->priority = USER_Q;
-	rmp->numTickets = (unsigned)m_ptr->SCHEDULING_TICKETS;
+	rmp->num_tickets = (unsigned)m_ptr->SCHEDULING_TICKETS;
 	
 	} else {
 		rmp->max_priority = rmp->priority = new_q;
